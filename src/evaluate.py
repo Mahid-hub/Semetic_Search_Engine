@@ -1,90 +1,125 @@
 import json
-from src.keyword_search import keyword_search
-from src.dense_search import dense_search
+import os
+import sys
 from src.hybrid_search import hybrid_search
 
-def load_queries():
-    with open("queries/test_queries.json", "r", encoding="utf-8") as file:
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, PROJECT_ROOT)
+
+def load_questions():
+    file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "questions.json")
+
+    with open(file_path, "r", encoding="utf-8") as file:
         return json.load(file)
 
 def recall_at_k(results, relevant_chunks, k):
-    retrieved_ids = []
-    for result in results[:k]:
-        retrieved_ids.append(result["chunk_id"])
+    top_results = results[:k]
+    retrieved_chunks = set()
 
-    retrieved_ids = set(retrieved_ids)
+    for result in top_results:
+        if "chunk_id" in result:
+            retrieved_chunks.add(result["chunk_id"])
+     
+        elif "payload" in result:
+            payload = result["payload"]
+
+            if "chunk_id" in payload:
+                retrieved_chunks.add(payload["chunk_id"])
+
     relevant_chunks = set(relevant_chunks)
-    found = retrieved_ids.intersection(relevant_chunks)
 
     if len(relevant_chunks) == 0:
         return 0.0
 
-    return len(found) / len(relevant_chunks)
+    found = retrieved_chunks.intersection(relevant_chunks)
+    recall = len(found) / len(relevant_chunks)
+
+    return recall
 
 
-def reciprocal_rank(results, relevant_chunks):
-    relevant_chunks = set(relevant_chunks)
+def evaluate_question(question_data):
+
+    question_id = question_data["id"]
+    question = question_data["question"]
+    relevant_chunks = question_data["relevant_chunks"]
+
+    print("\n" + "=" * 60)
+    print(f"Question ID: {question_id}")
+    print(f"Question: {question}")
+    print(f"Relevant chunks: {relevant_chunks}")
+
+    results = hybrid_search(question, limit=10)
+    recall_5 = recall_at_k(results, relevant_chunks, 5)
+    recall_10 = recall_at_k(results, relevant_chunks, 10)
+
+    retrieved_chunks = []
+
+    for result in results[:10]:
+        if "chunk_id" in result:
+            retrieved_chunks.append(result["chunk_id"])
+
+        elif "payload" in result:
+            payload = result["payload"]
+
+            if "chunk_id" in payload:
+                retrieved_chunks.append(payload["chunk_id"])
+
+    print(f"Retrieved chunks: {retrieved_chunks}")
+    print(f"Recall@5: {recall_5 * 100:.2f}%")
+    print(f"Recall@10: {recall_10 * 100:.2f}%")
+
+    return {
+        "id": question_id,
+        "question": question,
+        "relevant_chunks": relevant_chunks,
+        "retrieved_chunks": retrieved_chunks,
+        "recall_at_5": recall_5,
+        "recall_at_10": recall_10
+    }
+
+def main():
     
-    for rank, result in enumerate(results, start=1):
-        chunk_id = result["chunk_id"]
-        
-        if chunk_id in relevant_chunks:
-            return 1 / rank
+    print("\n")
+    print("=" * 60)
+    print("        PHASE 12 - RETRIEVAL RECALL EVALUATION")
+    print("=" * 60)
 
-    return 0.0
-
-def evaluate_method(queries, search_function, k=5):
-    recall_scores = []
-    rr_scores = []
-
-    for item in queries:
-        query = item["query"]
-        relevant_chunks = item["relevant_chunks"]
-        
-        results = search_function(query, k)
-        recall = recall_at_k(results, relevant_chunks, k)
-        rr = reciprocal_rank(results, relevant_chunks)
-        
-        recall_scores.append(recall)
-        rr_scores.append(rr)
-
-    average_recall = sum(recall_scores) / len(recall_scores)
-    average_mrr = sum(rr_scores) / len(rr_scores)
-
-    return average_recall, average_mrr
-
-
-def evaluate():
-    queries = load_queries()
+    questions = load_questions()
+    print(f"\nTotal questions: {len(questions)}")
     
+    results = []
+
+    for question in questions:
+        result = evaluate_question(question)
+        results.append(result)
+
+    if len(results) > 0:
+        average_recall_5 = sum(result["recall_at_5"] for result in results) / len(results)
+        average_recall_10 = sum(result["recall_at_10"] for result in results) / len(results)
+        
+    else:
+        average_recall_5 = 0.0
+        average_recall_10 = 0.0
+
+    print("\n")
     print("=" * 60)
-    print("SEARCH EVALUATION")
+    print("                FINAL RESULTS")
     print("=" * 60)
-
-    print(f"Number of queries: {len(queries)}")
-    print("K: 5")
-
-    print("Evaluating BM25...")
-    bm25_recall, bm25_mrr = evaluate_method(queries, keyword_search, k=5)
-    
-    print("Evaluating Dense Search...")
-    dense_recall, dense_mrr = evaluate_method(queries, dense_search, k=5)
-
-    print("Evaluating Hybrid Search...")
-    hybrid_recall, hybrid_mrr = evaluate_method(queries, hybrid_search, k=5)
-
-    print()
-    print("=" * 60)
-    print("FINAL RESULTS")
-    print("=" * 60)
-    print()
-
-    print(f"{'Method':<15} {'Recall@5':<15} {'MRR':<15}")
-    print("-" * 45)
-    print(f"{'BM25':<15} {bm25_recall:<15.3f} {bm25_mrr:<15.3f}")
-    print(f"{'Dense':<15} {dense_recall:<15.3f} {dense_mrr:<15.3f}")
-    print(f"{'Hybrid':<15} {hybrid_recall:<15.3f} {hybrid_mrr:<15.3f}")
+    print(f"Total questions : {len(results)}")
+    print(f"Recall@5        : " f"{average_recall_5 * 100:.2f}%")
+    print(f"Recall@10       : " f"{average_recall_10 * 100:.2f}%")
     print("=" * 60)
 
-if __name__ == "__main__":
-    evaluate()
+    output_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results.json")
+    report = {
+        "total_questions": len(results),
+        "average_recall_at_5": average_recall_5,
+        "average_recall_at_10": average_recall_10,
+        "questions": results
+    }
+
+
+    with open(output_file, "w", encoding="utf-8") as file:
+        json.dump(report, file, indent=4, ensure_ascii=False)
+
+main()
