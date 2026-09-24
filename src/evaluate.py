@@ -7,7 +7,7 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
 
 def load_questions():
-    file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "questions.json")
+    file_path = os.path.join(PROJECT_ROOT, "queries", "test_queries.json")
 
     with open(file_path, "r", encoding="utf-8") as file:
         return json.load(file)
@@ -37,10 +37,10 @@ def recall_at_k(results, relevant_chunks, k):
     return recall
 
 
-def evaluate_question(question_data):
+def evaluate_question(question_data, question_number):
 
-    question_id = question_data["id"]
-    question = question_data["question"]
+    question_id = question_data.get("id", question_number)
+    question = question_data.get("question", question_data["query"])
     relevant_chunks = question_data["relevant_chunks"]
 
     print("\n" + "=" * 60)
@@ -89,8 +89,8 @@ def main():
     
     results = []
 
-    for question in questions:
-        result = evaluate_question(question)
+    for question_number, question in enumerate(questions, start=1):
+        result = evaluate_question(question, question_number)
         results.append(result)
 
     if len(results) > 0:
@@ -110,7 +110,7 @@ def main():
     print(f"Recall@10       : " f"{average_recall_10 * 100:.2f}%")
     print("=" * 60)
 
-    output_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results.json")
+    output_file = os.path.join(PROJECT_ROOT, "results", "evaluation_results.json")
     report = {
         "total_questions": len(results),
         "average_recall_at_5": average_recall_5,
@@ -122,4 +122,8 @@ def main():
     with open(output_file, "w", encoding="utf-8") as file:
         json.dump(report, file, indent=4, ensure_ascii=False)
 
-main()
+evaluate = main
+
+
+if __name__ == "__main__":
+    main()
